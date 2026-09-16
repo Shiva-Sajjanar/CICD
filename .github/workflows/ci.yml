@@ -1,0 +1,43 @@
+name: CI/CD Pipeline Build & Test
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    name: Maven Build, Unit Tests & Docker Smoke Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build with Maven & Run Unit Tests
+        run: mvn clean test
+
+      - name: Package Application JAR
+        run: mvn package -DskipTests
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        run: |
+          docker build -t devops-cicd-app:test .
+
+      - name: Verify Docker Container Health
+        run: |
+          docker run -d --name test-app -p 8080:8080 devops-cicd-app:test
+          sleep 15
+          curl -f http://localhost:8080/api/health || exit 1
+          docker stop test-app

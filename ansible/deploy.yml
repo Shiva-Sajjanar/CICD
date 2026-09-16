@@ -1,0 +1,61 @@
+---
+# ==============================================================================
+# Ansible Playbook: Automated Docker Deployment on AWS EC2
+# ==============================================================================
+- name: Deploy Dockerized Spring Boot Application on AWS EC2
+  hosts: "{{ target_env | default('staging') }}"
+  become: yes
+  vars:
+    docker_image: "{{ docker_image | default('yourdockerhubuser/devops-cicd-app:latest') }}"
+    container_name: "devops-cicd-app"
+    app_port: "8080"
+    host_port: "8080"
+
+  tasks:
+    - name: Ensure Docker service is running on AWS EC2 instance
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Pull latest application image from Docker Registry
+      community.docker.docker_image:
+        name: "{{ docker_image }}"
+        source: pull
+        force_source: yes
+      register: docker_pull_result
+      retries: 3
+      delay: 5
+      until: docker_pull_result is not failed
+
+    - name: Stop and remove existing container if present
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        state: absent
+        force_kill: yes
+
+    - name: Launch updated application container
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        image: "{{ docker_image }}"
+        state: started
+        restart_policy: always
+        ports:
+          - "{{ host_port }}:{{ app_port }}"
+        env:
+          APP_ENV: "{{ target_env | default('production') }}"
+          SERVER_PORT: "{{ app_port }}"
+
+    - name: Wait for application to start and respond on health endpoint
+      uri:
+        url: "http://localhost:{{ host_port }}/api/health"
+        status_code: 200
+        return_content: yes
+      register: health_check
+      retries: 10
+      delay: 5
+      until: health_check.status == 200
+
+    - name: Output deployment verification
+      debug:
+        msg: "Deployment Successful! Application is healthy and running on port {{ host_port }}."
